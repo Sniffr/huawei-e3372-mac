@@ -1,0 +1,11 @@
+#!/bin/sh
+# Start the plug-in LaunchDaemon. launchd also runs it right away for a
+# stick that is already plugged in.
+LABEL=com.huawei-e3372.switch
+PLIST=/Library/LaunchDaemons/$LABEL.plist
+chown root:wheel /usr/local/libexec/e3372-switch /usr/local/libexec/e3372-uninstall "$PLIST"
+chmod 755 /usr/local/libexec/e3372-switch /usr/local/libexec/e3372-uninstall
+chmod 644 "$PLIST"
+launchctl bootout system/"$LABEL" 2>/dev/null || true
+launchctl bootstrap system "$PLIST"
+exit 0

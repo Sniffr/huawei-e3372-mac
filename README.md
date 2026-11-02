@@ -3,6 +3,10 @@
 This gets a Huawei E3372 LTE USB stick with **HiLink** firmware online on an
 Apple-silicon Mac. It needs no kernel extension and no Huawei software.
 
+**Install:** download [Huawei-E3372-1.0.0.pkg](https://github.com/Sniffr/huawei-e3372-mac/releases/latest/download/Huawei-E3372-1.0.0.pkg)
+from the [latest release](https://github.com/Sniffr/huawei-e3372-mac/releases/latest),
+open it, and plug the stick in.
+
 ## Why it doesn't work out of the box
 
 When you plug it in, the E3372 pretends to be a CD drive (`HiLink` volume,
@@ -32,21 +36,35 @@ switch therefore needs someone logged in at the Mac. Before login, run
 
 ## Install
 
-Requires the Xcode Command Line Tools (`xcode-select --install`) and
-Homebrew. libusb is used only at build time; the installer runs
-`brew install libusb` for you if it is missing.
+Requires an Apple-silicon Mac on macOS 12 or later. Nothing else is needed.
 
-```bash
-~/huawei-e3372/install.sh
-```
+1. Download [Huawei-E3372-1.0.0.pkg](https://github.com/Sniffr/huawei-e3372-mac/releases/latest/download/Huawei-E3372-1.0.0.pkg).
+2. Open it and follow the installer. It asks for an admin password.
+   The package isn't signed with an Apple Developer ID. If macOS says it
+   can't verify the developer, go to System Settings › Privacy & Security,
+   click **Open Anyway**, and open the package again.
+3. Plug the stick in. If it's already plugged in, it switches right away.
 
-It asks for your password once. It installs:
+It installs:
 
 | File | Purpose |
 |---|---|
 | `/usr/local/libexec/e3372-switch` | the switch tool |
+| `/usr/local/libexec/e3372-uninstall` | removes everything again |
 | `/Library/LaunchDaemons/com.huawei-e3372.switch.plist` | runs it on plug-in |
 | `/var/log/e3372-switch.log` | what it did |
+
+### From source
+
+Needs the Xcode Command Line Tools (`xcode-select --install`) and Homebrew.
+libusb is used only at build time and is linked in statically. The script
+runs `brew install libusb` for you if it's missing.
+
+```bash
+git clone https://github.com/Sniffr/huawei-e3372-mac.git
+cd huawei-e3372-mac
+./install.sh
+```
 
 ## Use
 
@@ -82,8 +100,10 @@ sudo /usr/local/libexec/e3372-switch
 ## Uninstall
 
 ```bash
-~/huawei-e3372/uninstall.sh
+sudo /usr/local/libexec/e3372-uninstall
 ```
+
+(or `./uninstall.sh` from a source checkout)
 
 This removes the tool, the LaunchDaemon and the log. The stick itself is not
 changed: it still starts in CD mode on any computer. To also remove its network
@@ -93,4 +113,5 @@ service, open System Settings › Network, select it and click **−**.
 
 ```bash
 make            # → build/e3372-switch
+make pkg        # → build/Huawei-E3372-1.0.0.pkg
 ```
