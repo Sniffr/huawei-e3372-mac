@@ -26,8 +26,15 @@ sudo install -m 644 -o root -g wheel com.huawei-e3372.switch.plist "$PLIST"
 sudo launchctl bootout system/"$LABEL" 2>/dev/null || true
 sudo launchctl bootstrap system "$PLIST"
 
-echo "==> Switching any stick that is plugged in now"
-sudo "$BIN" || true
+# launchd starts the switch itself for a stick that is already plugged in.
+echo "==> Waiting for a plugged-in stick to switch"
+for i in $(seq 25); do
+	ioreg -p IOUSB -l | grep -q '"idProduct" = 7937' || break
+	sleep 1
+done
+if ioreg -p IOUSB -l | grep -q '"idProduct" = 7937'; then
+	echo "The stick is still in CD mode; see /var/log/e3372-switch.log"
+fi
 
 echo
 echo "Done. Plug the E3372 in; within ~15 seconds it shows up as a"

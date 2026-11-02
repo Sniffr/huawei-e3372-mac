@@ -18,6 +18,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/file.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <spawn.h>
 #include <dispatch/dispatch.h>
 #include <xpc/xpc.h>
 #include <libusb.h>
@@ -68,9 +71,13 @@ static int find_endpoints(libusb_device *dev, int *iface, unsigned char *ep_out,
 	return -1;
 }
 
-/* Returns 0 if a stick was switched or none needed switching. */
-static int switch_stick(void)
+#define RETRY (-1)
+
+/* Returns 0 if a stick was switched or none needed switching, RETRY if the
+ * interface could not be taken over yet. */
+static int try_switch(int attempt, int last)
 {
+	int quiet_retry = !last;
 	libusb_context *ctx;
 	if (libusb_init(&ctx) != 0) {
 		fprintf(stderr, "libusb_init failed\n");
@@ -87,6 +94,9 @@ static int switch_stick(void)
 		return 0;
 	}
 
+	if (last)
+		libusb_set_option(ctx, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_DEBUG);
+
 	int rc = 1, iface;
 	unsigned char ep, ep_in;
 	if (find_endpoints(libusb_get_device(h), &iface, &ep, &ep_in) != 0) {
@@ -94,12 +104,22 @@ static int switch_stick(void)
 		goto out;
 	}
 
-	/* macOS's mass-storage driver owns the interface; libusb takes it (root only). */
-	libusb_set_auto_detach_kernel_driver(h, 1);
-	int r = libusb_claim_interface(h, iface);
+	/* Capture the device (root only): macOS re-enumerates it with this process
+	 * as owner, so macOS's mass-storage driver lets go.  Do it even when no
+	 * kernel driver shows as attached, because a capture left over from an
+	 * earlier run also blocks the claim, and only a new capture clears it. */
+	int r = libusb_detach_kernel_driver(h, iface);
+	if (r != 0 && last)
+		fprintf(stderr, "detach kernel driver: %s\n", libusb_strerror(r));
+	r = libusb_claim_interface(h, iface);
 	if (r != 0) {
-		fprintf(stderr, "claim interface %d: %s%s\n", iface, libusb_strerror(r),
-			r == LIBUSB_ERROR_ACCESS ? " (run as root)" : "");
+		if (r == LIBUSB_ERROR_ACCESS)
+			fprintf(stderr, "claim interface %d: %s (run as root)\n", iface, libusb_strerror(r));
+		else {
+			if (!quiet_retry)
+				fprintf(stderr, "claim interface %d: %s\n", iface, libusb_strerror(r));
+			rc = RETRY;
+		}
 		goto out;
 	}
 
@@ -128,6 +148,19 @@ out:
 	return rc;
 }
 
+/* Right after plug-in macOS is still attaching its storage driver and the
+ * takeover fails, so keep trying for a while with a fresh handle each time. */
+static int switch_stick(void)
+{
+	for (int attempt = 1; attempt <= 15; attempt++) {
+		int rc = try_switch(attempt, attempt == 15);
+		if (rc != RETRY)
+			return rc;
+		sleep(1);
+	}
+	return 1;
+}
+
 /* Wait for the stick to come back as a network adapter, then let macOS add
  * a network service for it (it otherwise only does that interactively). */
 static void register_interface(void)
@@ -154,24 +187,38 @@ int main(int argc, char **argv)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
 
+	if (argc > 1 && strcmp(argv[1], "--launchd") == 0) {
+		/* launchd keeps relaunching us until the IOKit match event is consumed. */
+		xpc_set_event_stream_handler("com.apple.iokit.matching",
+					     dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0),
+					     ^(xpc_object_t event) { (void)event; });
+
+		/* From a LaunchDaemon, macOS refuses to open the stick's interface
+		 * ("out of resources") even as root; from root inside the logged-in
+		 * user's session it works.  So run the switch there when someone is
+		 * logged in at the console. */
+		struct stat st;
+		if (stat("/dev/console", &st) == 0 && st.st_uid != 0) {
+			char uid[16];
+			snprintf(uid, sizeof uid, "%u", st.st_uid);
+			char *args[] = { "launchctl", "asuser", uid, argv[0], NULL };
+			pid_t pid;
+			int status = 1;
+			if (posix_spawn(&pid, "/bin/launchctl", NULL, NULL, args, NULL) == 0 &&
+			    waitpid(pid, &status, 0) == pid)
+				return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+			fprintf(stderr, "could not run in the user session; trying directly\n");
+		}
+	}
+
 	/* Plug-in events and manual runs can overlap; one switch at a time. */
 	int lock = open("/tmp/e3372-switch.lock", O_RDONLY | O_CREAT, 0644);
 	if (lock >= 0)
 		flock(lock, LOCK_EX);
 
-	if (argc > 1 && strcmp(argv[1], "--launchd") == 0) {
-		/* launchd keeps relaunching us until the IOKit match event is consumed. */
-		xpc_set_event_stream_handler("com.apple.iokit.matching", dispatch_get_main_queue(),
-					     ^(xpc_object_t event) { (void)event; });
-		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 2), dispatch_get_main_queue(), ^{
-			if (switch_stick() == 0)
-				register_interface();
-			exit(0);
-		});
-		dispatch_main();
-	}
-
 	int rc = switch_stick();
+	if (rc != 0)
+		fprintf(stderr, "switch failed\n");
 	if (rc == 0 && geteuid() == 0)
 		register_interface();
 	return rc;
