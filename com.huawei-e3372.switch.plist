@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.huawei-e3372.switch</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/libexec/e3372-switch</string>
+		<string>--launchd</string>
+	</array>
+	<!-- Start whenever a Huawei stick shows up in virtual-CD mode (12d1:1f01). -->
+	<key>LaunchEvents</key>
+	<dict>
+		<key>com.apple.iokit.matching</key>
+		<dict>
+			<key>com.huawei-e3372.storage-mode</key>
+			<dict>
+				<key>IOProviderClass</key>
+				<string>IOUSBHostDevice</string>
+				<key>idVendor</key>
+				<integer>4817</integer>
+				<key>idProduct</key>
+				<integer>7937</integer>
+				<key>IOMatchLaunchStream</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>/var/log/e3372-switch.log</string>
+	<key>StandardErrorPath</key>
+	<string>/var/log/e3372-switch.log</string>
+</dict>
+</plist>
