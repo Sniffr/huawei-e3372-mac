@@ -24,6 +24,12 @@ The switch needs root because it takes the USB interface away from macOS's
 mass-storage driver. That is why it runs as a LaunchDaemon. Ejecting the CD,
 or sending the switch as an ordinary user, does not work on macOS.
 
+macOS also refuses that takeover from a background daemon, even as root
+(libusb reports "out of resources"). So the daemon runs the switch as root
+inside the logged-in user's session, via `launchctl asuser`. The automatic
+switch therefore needs someone logged in at the Mac. Before login, run
+`sudo /usr/local/libexec/e3372-switch` by hand.
+
 ## Install
 
 Requires the Xcode Command Line Tools (`xcode-select --install`) and
