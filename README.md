@@ -45,11 +45,13 @@ It asks for your password once. It installs:
 ## Use
 
 Plug the stick in. Within about 15 seconds the HiLink CD disappears and a new
-network service appears in System Settings › Network. The stick hands the Mac
-an address in `192.168.8.x` via DHCP.
+network service named **HUAWEI_MOBILE** appears in System Settings › Network.
+The stick hands the Mac an address by DHCP. On HiLink firmware that's usually
+`192.168.8.x`; this stick uses `192.168.106.x`.
 
-The stick's own web page is at <http://192.168.8.1>. Use it for the SIM PIN,
-APN, data on/off, SMS and signal strength.
+The stick's own web page is at its gateway address: <http://192.168.8.1> or
+<http://192.168.106.1> (`ipconfig getoption <interface> router` shows which).
+Use it for the SIM PIN, APN, data on/off, SMS and signal strength.
 
 If Wi-Fi is also connected, macOS uses whichever service is higher in the
 service order. To prefer the stick, go to System Settings › Network › ⋯ ›
@@ -66,7 +68,7 @@ sudo /usr/local/libexec/e3372-switch
 - Check the log first: `cat /var/log/e3372-switch.log`
 - Check the USB mode: `system_profiler SPUSBHostDataType | grep -A8 HUAWEI`.
   `Product ID: 0x1f01` means it is still in CD mode. `0x14dc` means network mode.
-- If the network mode is up but there is no internet, open <http://192.168.8.1>
+- If the network mode is up but there is no internet, open the stick's web page
   and check the SIM, PIN, APN and signal there.
 - A stick with "Stick" (non-HiLink) firmware switches to a different ID
   (`0x1506`, NCM + serial ports). This repo does not handle that case.

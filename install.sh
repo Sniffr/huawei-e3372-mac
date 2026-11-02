@@ -30,6 +30,6 @@ echo "==> Switching any stick that is plugged in now"
 sudo "$BIN" || true
 
 echo
-echo "Done. Plug the E3372 in; within ~15 seconds it shows up as a network"
-echo "adapter and gets an address from the stick (192.168.8.x)."
-echo "Stick settings (SIM PIN, APN, data): http://192.168.8.1"
+echo "Done. Plug the E3372 in; within ~15 seconds it shows up as a"
+echo "network adapter (HUAWEI_MOBILE) and gets an address from the stick."
+echo "Stick settings (SIM PIN, APN, data): http://192.168.8.1 or http://192.168.106.1"

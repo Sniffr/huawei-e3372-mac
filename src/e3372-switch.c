@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/file.h>
 #include <dispatch/dispatch.h>
 #include <xpc/xpc.h>
 #include <libusb.h>
@@ -36,7 +38,7 @@ static const unsigned char switch_msg[31] = {
 	0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
-static int find_out_endpoint(libusb_device *dev, int *iface, unsigned char *ep)
+static int find_endpoints(libusb_device *dev, int *iface, unsigned char *ep_out, unsigned char *ep_in)
 {
 	struct libusb_config_descriptor *cfg;
 	if (libusb_get_active_config_descriptor(dev, &cfg) != 0 &&
@@ -46,15 +48,20 @@ static int find_out_endpoint(libusb_device *dev, int *iface, unsigned char *ep)
 		const struct libusb_interface_descriptor *alt = &cfg->interface[i].altsetting[0];
 		if (alt->bInterfaceClass != LIBUSB_CLASS_MASS_STORAGE)
 			continue;
+		*ep_out = *ep_in = 0;
 		for (int e = 0; e < alt->bNumEndpoints; e++) {
 			const struct libusb_endpoint_descriptor *d = &alt->endpoint[e];
-			if ((d->bmAttributes & 3) == LIBUSB_TRANSFER_TYPE_BULK &&
-			    !(d->bEndpointAddress & LIBUSB_ENDPOINT_IN)) {
-				*iface = alt->bInterfaceNumber;
-				*ep = d->bEndpointAddress;
-				libusb_free_config_descriptor(cfg);
-				return 0;
-			}
+			if ((d->bmAttributes & 3) != LIBUSB_TRANSFER_TYPE_BULK)
+				continue;
+			if (d->bEndpointAddress & LIBUSB_ENDPOINT_IN)
+				*ep_in = d->bEndpointAddress;
+			else
+				*ep_out = d->bEndpointAddress;
+		}
+		if (*ep_out) {
+			*iface = alt->bInterfaceNumber;
+			libusb_free_config_descriptor(cfg);
+			return 0;
 		}
 	}
 	libusb_free_config_descriptor(cfg);
@@ -81,8 +88,8 @@ static int switch_stick(void)
 	}
 
 	int rc = 1, iface;
-	unsigned char ep;
-	if (find_out_endpoint(libusb_get_device(h), &iface, &ep) != 0) {
+	unsigned char ep, ep_in;
+	if (find_endpoints(libusb_get_device(h), &iface, &ep, &ep_in) != 0) {
 		fprintf(stderr, "no mass-storage bulk OUT endpoint found\n");
 		goto out;
 	}
@@ -103,7 +110,15 @@ static int switch_stick(void)
 		libusb_release_interface(h, iface);
 		goto out;
 	}
-	/* The stick detaches right after this; errors from here on don't matter. */
+	/* Read the command status, as usb_modeswitch does, then give the stick
+	 * time to drop off the bus.  Releasing the interface hands it back to
+	 * macOS, which resets the device; doing that too early cancels the
+	 * switch.  Errors from here on are expected and harmless. */
+	if (ep_in) {
+		unsigned char csw[13];
+		libusb_bulk_transfer(h, ep_in, csw, sizeof csw, &sent, 1000);
+	}
+	sleep(5);
 	libusb_release_interface(h, iface);
 	printf("Switch message sent; the E3372 will reappear as a network adapter\n");
 	rc = 0;
@@ -138,6 +153,11 @@ static void register_interface(void)
 int main(int argc, char **argv)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
+
+	/* Plug-in events and manual runs can overlap; one switch at a time. */
+	int lock = open("/tmp/e3372-switch.lock", O_RDONLY | O_CREAT, 0644);
+	if (lock >= 0)
+		flock(lock, LOCK_EX);
 
 	if (argc > 1 && strcmp(argv[1], "--launchd") == 0) {
 		/* launchd keeps relaunching us until the IOKit match event is consumed. */
