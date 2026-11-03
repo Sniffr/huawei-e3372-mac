@@ -3,9 +3,10 @@
 This gets a Huawei E3372 LTE USB stick with **HiLink** firmware online on an
 Apple-silicon Mac. It needs no kernel extension and no Huawei software.
 
-**Install:** download [Huawei-E3372-1.0.0.pkg](https://github.com/Sniffr/huawei-e3372-mac/releases/latest/download/Huawei-E3372-1.0.0.pkg)
+**Install:** download [Huawei-E3372-1.1.0.pkg](https://github.com/Sniffr/huawei-e3372-mac/releases/latest/download/Huawei-E3372-1.1.0.pkg)
 from the [latest release](https://github.com/Sniffr/huawei-e3372-mac/releases/latest),
-open it, and plug the stick in.
+open it, and plug the stick in. It also installs **E3372 Modem**, an app for
+USSD codes and text messages.
 
 ## Why it doesn't work out of the box
 
@@ -38,7 +39,7 @@ switch therefore needs someone logged in at the Mac. Before login, run
 
 Requires an Apple-silicon Mac on macOS 12 or later. Nothing else is needed.
 
-1. Download [Huawei-E3372-1.0.0.pkg](https://github.com/Sniffr/huawei-e3372-mac/releases/latest/download/Huawei-E3372-1.0.0.pkg).
+1. Download [Huawei-E3372-1.1.0.pkg](https://github.com/Sniffr/huawei-e3372-mac/releases/latest/download/Huawei-E3372-1.1.0.pkg).
 2. Open it and follow the installer. It asks for an admin password.
    The package isn't signed with an Apple Developer ID. If macOS says it
    can't verify the developer, go to System Settings › Privacy & Security,
@@ -53,6 +54,7 @@ It installs:
 | `/usr/local/libexec/e3372-uninstall` | removes everything again |
 | `/Library/LaunchDaemons/com.huawei-e3372.switch.plist` | runs it on plug-in |
 | `/var/log/e3372-switch.log` | what it did |
+| `/Applications/E3372 Modem.app` | dialer, USSD and SMS app |
 
 ### From source
 
@@ -87,6 +89,34 @@ To run the switch by hand:
 sudo /usr/local/libexec/e3372-switch
 ```
 
+## The E3372 Modem app
+
+Open **E3372 Modem** from Applications. The first time, macOS asks whether
+it may find devices on your local network. Click **Allow**, because that's
+how the app reaches the stick. The app works while Wi-Fi carries your
+internet, and with no mobile data on the SIM.
+
+- **Dialer:** a phone keypad for USSD codes. Dial `*144#` and the reply
+  appears like a chat. For menus (M-PESA `*334#`, bundles `*544#`), type
+  your choice in the reply box and press **End** when you're done. The
+  buttons above the keypad are quick codes; edit them under **Device**.
+- **Messages:** your texts grouped into conversations. Read, reply, start a
+  new message, and delete conversations. When the stick's message storage
+  is full (500 messages), new texts can't arrive. A banner then offers to
+  delete the sent messages.
+- **Menu bar:** signal bars and an unread count. New texts trigger a Mac
+  notification.
+- **Device:** operator, network type, signal (RSRP/SINR), SIM state, and a
+  link to the stick's own web page.
+
+The E3372 has no voice support, so it **can't make or receive calls**. If you
+dial a plain phone number, the app offers to text it instead.
+
+The app reaches the stick's address automatically. If it can't find the
+stick, enter the address (for example `192.168.8.1`) under **Device ›
+Stick**. It uses the same web API as the stick's own page; nothing else is
+installed on the stick.
+
 ## Troubleshooting
 
 - Check the log first: `cat /var/log/e3372-switch.log`
@@ -105,7 +135,7 @@ sudo /usr/local/libexec/e3372-uninstall
 
 (or `./uninstall.sh` from a source checkout)
 
-This removes the tool, the LaunchDaemon and the log. The stick itself is not
+This removes the tool, the LaunchDaemon, the log and the app. The stick itself is not
 changed: it still starts in CD mode on any computer. To also remove its network
 service, open System Settings › Network, select it and click **−**.
 
@@ -113,5 +143,6 @@ service, open System Settings › Network, select it and click **−**.
 
 ```bash
 make            # → build/e3372-switch
-make pkg        # → build/Huawei-E3372-1.0.0.pkg
+make app        # → build/E3372 Modem.app
+make pkg        # → build/Huawei-E3372-1.1.0.pkg
 ```
