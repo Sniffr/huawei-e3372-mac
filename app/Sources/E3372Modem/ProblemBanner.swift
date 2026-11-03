@@ -14,12 +14,13 @@ struct ProblemBanner: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.headline)
                 Text(detail).font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(3)
                 actions.padding(.top, 4)
             }
             Spacer(minLength: 0)
         }
         .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(tint.opacity(0.1))
     }
 

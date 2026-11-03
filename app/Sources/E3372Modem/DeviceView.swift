@@ -14,6 +14,7 @@ struct DeviceView: View {
                 LabeledContent("Signal") {
                     HStack(spacing: 8) {
                         SignalBars(bars: model.status.signalBars, max: model.status.maxBars)
+                            .font(.title3)
                         if !model.status.rsrp.isEmpty {
                             Text("RSRP \(model.status.rsrp) · SINR \(model.status.sinr)")
                                 .font(.caption.monospaced()).foregroundStyle(.secondary)
@@ -24,37 +25,54 @@ struct DeviceView: View {
                 LabeledContent("Mobile data", value: value(model.status.connectionText))
             }
 
-            Section("Quick codes") {
+            Section {
                 ForEach($model.quickCodes) { $q in
-                    HStack {
-                        TextField("Name", text: $q.name)
-                        TextField("Code", text: $q.code).font(.body.monospaced())
+                    HStack(spacing: 8) {
+                        TextField(text: $q.name, prompt: Text("Name")) { EmptyView() }.labelsHidden()
+                            .frame(width: 170)
+                        TextField(text: $q.code, prompt: Text("Code")) { EmptyView() }.labelsHidden()
+                            .font(.body.monospaced())
                         Button(role: .destructive) {
                             model.quickCodes.removeAll { $0.id == q.id }
-                        } label: { Image(systemName: "minus.circle") }
+                        } label: { Image(systemName: "minus.circle.fill").foregroundStyle(.red) }
                         .buttonStyle(.borderless)
+                        .help("Remove")
                     }
                 }
-                HStack {
-                    TextField("Name", text: $newName)
-                    TextField("Code, e.g. *544#", text: $newCode).font(.body.monospaced())
-                    Button {
-                        model.quickCodes.append(QuickCode(name: newName, code: newCode))
-                        newName = ""; newCode = ""
-                    } label: { Image(systemName: "plus.circle") }
+                HStack(spacing: 8) {
+                    TextField(text: $newName, prompt: Text("Name")) { EmptyView() }.labelsHidden()
+                        .frame(width: 170)
+                    TextField(text: $newCode, prompt: Text("Code, e.g. *544#")) { EmptyView() }.labelsHidden()
+                        .font(.body.monospaced())
+                        .onSubmit(addCode)
+                    Button(action: addCode) {
+                        Image(systemName: "plus.circle.fill").foregroundStyle(.green)
+                    }
                     .buttonStyle(.borderless)
                     .disabled(newName.isEmpty || newCode.isEmpty)
+                    .help("Add")
                 }
+            } header: {
+                Text("Quick codes")
+            } footer: {
+                Text("These appear as buttons above the dialer keypad.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
+            .textFieldStyle(.roundedBorder)
+            .multilineTextAlignment(.leading)
 
             Section("Stick") {
-                LabeledContent("Address") {
+                LabeledContent {
                     HStack {
-                        TextField("Automatic (\(HiLink.detectHost()))", text: $hostField)
-                            .frame(maxWidth: 220)
+                        TextField(text: $hostField, prompt: Text("Automatic")) { EmptyView() }
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 160)
                             .onSubmit { model.setHost(hostField) }
                         Button("Apply") { model.setHost(hostField) }
                     }
+                } label: {
+                    Text("Address")
+                    Text("Now using \(model.host). Leave empty to find it automatically.")
                 }
                 Toggle("Open at login (for new-message notifications)", isOn: Binding(
                     get: { model.opensAtLogin }, set: { model.opensAtLogin = $0 }))
@@ -66,6 +84,12 @@ struct DeviceView: View {
         .formStyle(.grouped)
         .navigationTitle("Device")
         .onAppear { hostField = UserDefaults.standard.string(forKey: "host") ?? "" }
+    }
+
+    private func addCode() {
+        guard !newName.isEmpty, !newCode.isEmpty else { return }
+        model.quickCodes.append(QuickCode(name: newName, code: newCode))
+        newName = ""; newCode = ""
     }
 
     private func value(_ s: String) -> String {

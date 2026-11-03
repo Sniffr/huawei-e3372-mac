@@ -18,7 +18,7 @@ struct DialerView: View {
         HStack(spacing: 0) {
             keypad
                 .frame(width: 320)
-                .padding(.vertical, 20)
+                .padding(.vertical, 16)
             Divider()
             transcript
         }
@@ -34,47 +34,61 @@ struct DialerView: View {
     // MARK: Keypad
 
     private var keypad: some View {
-        VStack(spacing: 18) {
-            quickCodes
-            Spacer(minLength: 0)
-            HStack {
-                TextField("Enter a code like *144#", text: $number)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 30, weight: .light, design: .rounded))
-                    .multilineTextAlignment(.center)
-                    .onSubmit(call)
-                if !number.isEmpty {
-                    Button { number.removeLast() } label: {
-                        Image(systemName: "delete.left").font(.title2)
+        GeometryReader { geo in
+            // Five rows of keys (4 + call) plus gaps take 6.2 key heights; the
+            // quick codes and the display take the rest. Drop the quick codes
+            // in short windows (they're also in the menu bar).
+            let showQuick = geo.size.height > 470
+            let fixed: CGFloat = showQuick ? 150 : 60
+            let key = min(68, max(34, (geo.size.height - fixed) / 6.2))
+            VStack(spacing: key * 0.2) {
+                if showQuick { quickCodes }
+                Spacer(minLength: 0)
+                HStack(spacing: 6) {
+                    TextField("Enter code", text: $number)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 28, weight: .light, design: .rounded))
+                        .minimumScaleFactor(0.5)
+                        .multilineTextAlignment(.center)
+                        .onSubmit(call)
+                    Button { if !number.isEmpty { number.removeLast() } } label: {
+                        Image(systemName: "delete.left").font(.title3)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
+                    .opacity(number.isEmpty ? 0 : 1)
                 }
-            }
-            .frame(height: 44)
-            .padding(.horizontal, 24)
+                .frame(height: 40)
+                .padding(.horizontal, 28)
 
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(72), spacing: 18), count: 3), spacing: 14) {
-                ForEach(keys, id: \.0) { key in
-                    KeyButton(digit: key.0, letters: key.1) { number += key.0 }
-                }
-            }
-
-            Button(action: call) {
-                ZStack {
-                    Circle().fill(Color.green)
-                    if model.ussdBusy {
-                        ProgressView().controlSize(.small).tint(.white)
-                    } else {
-                        Image(systemName: "phone.fill").font(.system(size: 26)).foregroundStyle(.white)
+                Grid(horizontalSpacing: key * 0.28, verticalSpacing: key * 0.2) {
+                    ForEach(0..<4) { row in
+                        GridRow {
+                            ForEach(0..<3) { col in
+                                let k = keys[row * 3 + col]
+                                KeyButton(digit: k.0, letters: k.1, size: key) { number += k.0 }
+                            }
+                        }
                     }
                 }
-                .frame(width: 72, height: 72)
+
+                Button(action: call) {
+                    ZStack {
+                        Circle().fill(Color.green)
+                        if model.ussdBusy {
+                            ProgressView().controlSize(.small).tint(.white)
+                        } else {
+                            Image(systemName: "phone.fill").font(.system(size: key * 0.36)).foregroundStyle(.white)
+                        }
+                    }
+                    .frame(width: key, height: key)
+                }
+                .buttonStyle(KeyPressStyle())
+                .disabled(number.isEmpty || model.ussdBusy)
+                .opacity(number.isEmpty ? 0.45 : 1)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            .disabled(number.isEmpty || model.ussdBusy)
-            .opacity(number.isEmpty ? 0.5 : 1)
-            Spacer(minLength: 0)
+            .frame(width: geo.size.width, height: geo.size.height)
         }
     }
 
@@ -184,18 +198,19 @@ struct DialerView: View {
 struct KeyButton: View {
     let digit: String
     let letters: String
+    var size: CGFloat = 68
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: -2) {
-                Text(digit).font(.system(size: 28, weight: .regular, design: .rounded))
+                Text(digit).font(.system(size: size * 0.4, weight: .regular, design: .rounded))
                 Text(letters.isEmpty ? " " : letters)
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: max(8, size * 0.13), weight: .semibold))
                     .tracking(1.5)
                     .foregroundStyle(.secondary)
             }
-            .frame(width: 72, height: 72)
+            .frame(width: size, height: size)
             .background(Circle().fill(.quaternary))
             .contentShape(Circle())
         }

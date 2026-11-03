@@ -4,11 +4,13 @@ import SwiftUI
 struct E3372ModemApp: App {
     @StateObject private var model = ModemModel()
 
+    init() { Snapshot.runIfRequested() }
+
     var body: some Scene {
         Window("E3372 Modem", id: "main") {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 860, minHeight: 560)
+                .frame(minWidth: 900, minHeight: 600)
                 .onAppear { model.start() }
         }
         .windowResizability(.contentMinSize)
@@ -77,9 +79,10 @@ struct MenuContent: View {
 
 struct ContentView: View {
     @EnvironmentObject var model: ModemModel
+    @State private var columns = NavigationSplitViewVisibility.all
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             List(selection: $model.section) {
                 Label("Dialer", systemImage: "circle.grid.3x3.fill").tag(ModemModel.Section.dialer)
                 Label("Messages", systemImage: "message.fill")
@@ -117,13 +120,9 @@ struct SignalBars: View {
     let max: Int
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach(0..<max, id: \.self) { i in
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(i < bars ? Color.primary : Color.secondary.opacity(0.25))
-                    .frame(width: 4, height: CGFloat(5 + i * 3))
-            }
-        }
+        Image(systemName: "cellularbars", variableValue: max > 0 ? Double(bars) / Double(max) : 0)
+            .symbolRenderingMode(.hierarchical)
+            .accessibilityLabel("\(bars) of \(max) bars")
     }
 }
 
@@ -134,6 +133,7 @@ struct StatusFooter: View {
         HStack(spacing: 10) {
             if status.reachable {
                 SignalBars(bars: status.signalBars, max: status.maxBars)
+                    .font(.title2)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(status.operatorName.isEmpty ? "No network" : status.operatorName)
                         .font(.callout.weight(.semibold))

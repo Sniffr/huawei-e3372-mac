@@ -54,6 +54,8 @@ final class ModemModel: ObservableObject {
     }
     @Published var problem: Problem?
     @Published var switching = false
+    /// Set while rendering screenshots: never change state on the stick.
+    var isSnapshot = false
 
     let api: HiLink
     private var knownInbox: Set<Int>?

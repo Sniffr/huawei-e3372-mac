@@ -150,22 +150,31 @@ struct ChatView: View {
             }
             Divider()
             HStack(alignment: .bottom, spacing: 8) {
-                TextField("Text message", text: $text, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...6)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 16).strokeBorder(.quaternary))
-                    .onSubmit(send)
-                VStack(spacing: 2) {
-                    Button(action: send) {
-                        Image(systemName: sending ? "ellipsis.circle.fill" : "arrow.up.circle.fill")
-                            .font(.system(size: 26))
+                HStack(alignment: .bottom, spacing: 6) {
+                    TextField("Text message", text: $text, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...6)
+                        .onSubmit(send)
+                    if !text.isEmpty {
+                        Text(counter).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(text.isEmpty ? Color.secondary : Color.accentColor)
-                    .disabled(text.isEmpty || sending || !model.status.reachable)
-                    Text(counter).font(.caption2).foregroundStyle(.secondary)
                 }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 17).strokeBorder(.quaternary))
+                Button(action: send) {
+                    Group {
+                        if sending {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.up.circle.fill").font(.system(size: 28))
+                        }
+                    }
+                    .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(text.isEmpty ? Color.secondary : Color.accentColor)
+                .disabled(text.isEmpty || sending || !model.status.reachable)
+                .keyboardShortcut(.return, modifiers: .command)
             }
             .padding(12)
         }
@@ -180,6 +189,7 @@ struct ChatView: View {
     }
 
     private func markRead() {
+        guard !model.isSnapshot else { return }
         if let c = model.conversations.first(where: { $0.phone == phone }), c.unreadCount > 0 {
             model.markRead(c)
         }
