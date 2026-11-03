@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ServiceManagement
 import UserNotifications
 
 struct Conversation: Identifiable, Hashable {
@@ -44,10 +45,21 @@ final class ModemModel: ObservableObject {
 
     enum Section: Hashable { case dialer, messages, device }
 
+    /// Why the stick isn't usable right now, in terms the user can act on.
+    enum Problem: Equatable {
+        case noStick
+        case starting(since: Date)
+        case driverMissing
+        case notAnswering
+    }
+    @Published var problem: Problem?
+    @Published var switching = false
+
     let api: HiLink
     private var knownInbox: Set<Int>?
     private var timer: Timer?
     private var started = false
+    private var polling = false
 
     init() {
         let saved = UserDefaults.standard.string(forKey: "host")
@@ -62,9 +74,27 @@ final class ModemModel: ObservableObject {
         guard !started else { return }
         started = true
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        // Start at login by default so text notifications keep arriving;
+        // the user can turn it off under Device.
+        if !UserDefaults.standard.bool(forKey: "loginItemConfigured") {
+            try? SMAppService.mainApp.register()
+            UserDefaults.standard.set(true, forKey: "loginItemConfigured")
+        }
         Task { await refreshAll() }
-        timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.poll() }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in await self?.poll() }
+        }
+    }
+
+    var opensAtLogin: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set {
+            if newValue { try? SMAppService.mainApp.register() } else { try? SMAppService.mainApp.unregister() }
+            objectWillChange.send()
         }
     }
 
@@ -81,6 +111,9 @@ final class ModemModel: ObservableObject {
     // MARK: Status and messages
 
     func poll() async {
+        guard !polling else { return }
+        polling = true
+        defer { polling = false }
         let before = status.unread
         await refreshStatus()
         if status.reachable && (status.unread != before || knownInbox == nil) {
@@ -89,22 +122,55 @@ final class ModemModel: ObservableObject {
     }
 
     func refreshAll() async {
-        if UserDefaults.standard.string(forKey: "host")?.isEmpty != false {
-            let detected = HiLink.detectHost()
-            if detected != host {
-                host = detected
-                await api.setHost(detected)
-            }
-        }
         await refreshStatus()
-        await refreshMessages()
+        if status.reachable { await refreshMessages() }
     }
 
     func refreshStatus() async {
-        do {
-            status = try await api.status()
-        } catch {
-            status = ModemStatus()
+        if let s = try? await api.status() {
+            status = s
+            problem = nil
+            return
+        }
+        // The web API didn't answer: find out why from the USB bus.
+        switch StickUSB.current() {
+        case .absent:
+            problem = .noStick
+        case .cdMode:
+            if !Driver.installed {
+                problem = .driverMissing
+            } else if case .starting = problem {
+                // keep the original start time
+            } else {
+                problem = .starting(since: Date())
+            }
+        case .network:
+            // The address can change after a replug; look again unless the
+            // user pinned one.
+            if UserDefaults.standard.string(forKey: "host")?.isEmpty != false {
+                let detected = HiLink.detectHost()
+                if detected != host {
+                    host = detected
+                    await api.setHost(detected)
+                    if let s = try? await api.status() {
+                        status = s
+                        problem = nil
+                        return
+                    }
+                }
+            }
+            problem = .notAnswering
+        }
+        status = ModemStatus()
+    }
+
+    func switchNow() {
+        guard !switching else { return }
+        switching = true
+        Task {
+            _ = await Driver.switchNow()
+            switching = false
+            problem = .starting(since: Date())
         }
     }
 
@@ -183,12 +249,22 @@ final class ModemModel: ObservableObject {
 
     // MARK: USSD
 
-    func dial(_ code: String) {
+    /// Dials a USSD code, or answers the open USSD menu when `reply` is true.
+    func dial(_ code: String, reply: Bool = false) {
         let code = code.trimmingCharacters(in: .whitespaces)
         guard !code.isEmpty, !ussdBusy else { return }
+        guard status.reachable else {
+            ussdLog.append(USSDEntry(kind: .error, text: "The stick isn't connected."))
+            return
+        }
+        let closeFirst = !reply && ussdSessionOpen
         ussdLog.append(USSDEntry(kind: .sent, text: code))
         ussdBusy = true
         Task {
+            if closeFirst {
+                await api.releaseUSSD()
+                ussdSessionOpen = false
+            }
             do {
                 switch try await api.sendUSSD(code) {
                 case .reply(let text):

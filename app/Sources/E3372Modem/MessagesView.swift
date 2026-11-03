@@ -163,7 +163,7 @@ struct ChatView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(text.isEmpty ? Color.secondary : Color.accentColor)
-                    .disabled(text.isEmpty || sending)
+                    .disabled(text.isEmpty || sending || !model.status.reachable)
                     Text(counter).font(.caption2).foregroundStyle(.secondary)
                 }
             }

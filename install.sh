@@ -19,10 +19,16 @@ fi
 echo "==> Building"
 make LIBUSB_PREFIX="$("$BREW" --prefix libusb)" >/dev/null 2>&1 || make LIBUSB_PREFIX="$("$BREW" --prefix libusb)"
 
+echo "==> Building the E3372 Modem app"
+app/bundle.sh >/dev/null
+
 echo "==> Installing (needs your password)"
 sudo mkdir -p /usr/local/libexec
 sudo install -m 755 -o root -g wheel build/e3372-switch "$BIN"
 sudo install -m 644 -o root -g wheel com.huawei-e3372.switch.plist "$PLIST"
+pkill -x E3372Modem 2>/dev/null || true
+sudo rm -rf "/Applications/E3372 Modem.app"
+sudo cp -R "build/E3372 Modem.app" /Applications/
 sudo launchctl bootout system/"$LABEL" 2>/dev/null || true
 sudo launchctl bootstrap system "$PLIST"
 
@@ -35,6 +41,8 @@ done
 if ioreg -p IOUSB -l | grep -q '"idProduct" = 7937'; then
 	echo "The stick is still in CD mode; see /var/log/e3372-switch.log"
 fi
+
+open "/Applications/E3372 Modem.app"
 
 echo
 echo "Done. Plug the E3372 in; within ~15 seconds it shows up as a"

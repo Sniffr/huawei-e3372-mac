@@ -1,11 +1,19 @@
 #!/bin/sh
-# Start the plug-in LaunchDaemon. launchd also runs it right away for a
-# stick that is already plugged in.
+# Start the plug-in LaunchDaemon (launchd also runs it right away for a
+# stick that is already plugged in), then open the app for the user.
 LABEL=com.huawei-e3372.switch
 PLIST=/Library/LaunchDaemons/$LABEL.plist
+APP="/Applications/E3372 Modem.app"
 chown root:wheel /usr/local/libexec/e3372-switch /usr/local/libexec/e3372-uninstall "$PLIST"
 chmod 755 /usr/local/libexec/e3372-switch /usr/local/libexec/e3372-uninstall
 chmod 644 "$PLIST"
 launchctl bootout system/"$LABEL" 2>/dev/null || true
 launchctl bootstrap system "$PLIST"
+
+USER_NAME=$(stat -f %Su /dev/console)
+if [ -n "$USER_NAME" ] && [ "$USER_NAME" != root ] && [ -d "$APP" ]; then
+	USER_ID=$(id -u "$USER_NAME")
+	pkill -x E3372Modem 2>/dev/null || true
+	launchctl asuser "$USER_ID" sudo -u "$USER_NAME" open "$APP" || true
+fi
 exit 0

@@ -48,12 +48,19 @@ final class XMLNode {
 struct HiLinkError: LocalizedError {
     let code: Int
 
+    /// Not stick codes; used for SMS delivery results.
+    static let sendFailed = -100, sendTimeout = -101
+
+    var isRetryable: Bool { code == -1 || code == 125002 || code == 125003 }
+
     var errorDescription: String? {
         switch code {
         case -1: return "The stick didn't answer. Is it plugged in?"
         case 125002, 125003: return "The stick's session expired. Try again."
         case 100002: return "This stick doesn't support that."
         case 100003: return "The stick refused the request (not allowed)."
+        case HiLinkError.sendFailed: return "The message couldn't be sent. Check that you have airtime."
+        case HiLinkError.sendTimeout: return "The stick didn't confirm the message was sent."
         default: return "The stick reported error \(code)."
         }
     }
@@ -68,31 +75,57 @@ func xmlEscape(_ s: String) -> String {
 }
 
 /// Talks to the stick's built-in web API (the one its web page uses).
-/// Every call fetches a fresh session cookie and token, which is what the
-/// stick's own page does too; it costs one tiny extra request.
+///
+/// The stick hands out a session cookie plus a token. GETs can reuse them, so
+/// polling costs one request per call. A POST uses up its token, so every POST
+/// fetches a fresh one first; that keeps concurrent calls safe. An expired
+/// session (125002/125003) or a dropped connection is retried once.
 actor HiLink {
     private(set) var host: String
     private let session: URLSession
+    private var cached: (cookie: String, token: String)?
 
     init(host: String) {
         self.host = host
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
-        config.timeoutIntervalForRequest = 8
+        config.timeoutIntervalForRequest = 5
+        config.timeoutIntervalForResource = 10
         session = URLSession(configuration: config)
     }
 
-    func setHost(_ host: String) { self.host = host }
+    func setHost(_ host: String) {
+        guard host != self.host else { return }
+        self.host = host
+        cached = nil
+    }
 
     func get(_ path: String) async throws -> XMLNode {
-        try await request(path, body: nil, auth: try await token())
+        do {
+            return try await request(path, body: nil, auth: try await sessionToken())
+        } catch let e as HiLinkError where e.isRetryable {
+            cached = nil
+            try await Task.sleep(nanoseconds: 200_000_000)
+            return try await request(path, body: nil, auth: try await sessionToken())
+        }
     }
 
     func post(_ path: String, _ body: String) async throws -> XMLNode {
-        try await request(path, body: body, auth: try await token())
+        do {
+            return try await request(path, body: body, auth: try await freshToken())
+        } catch let e as HiLinkError where e.code == 125002 || e.code == 125003 {
+            return try await request(path, body: body, auth: try await freshToken())
+        }
     }
 
-    private func token() async throws -> (cookie: String, token: String) {
+    private func sessionToken() async throws -> (cookie: String, token: String) {
+        if let cached { return cached }
+        let t = try await freshToken()
+        cached = t
+        return t
+    }
+
+    private func freshToken() async throws -> (cookie: String, token: String) {
         let info = try await request("webserver/SesTokInfo", body: nil, auth: nil)
         return (info.value("SesInfo"), info.value("TokInfo"))
     }
@@ -190,8 +223,14 @@ enum USSDResult {
 
 extension HiLink {
     func status() async throws -> ModemStatus {
-        var s = ModemStatus()
+        // One required call, then the rest in parallel; any of them may be
+        // unsupported on some firmware, so they're optional.
         let st = try await get("monitoring/status")
+        async let plmnCall = try? get("net/current-plmn")
+        async let signalCall = try? get("device/signal")
+        async let notifyCall = try? get("monitoring/check-notifications")
+
+        var s = ModemStatus()
         s.reachable = true
         s.signalBars = Int(st.value("SignalIcon")) ?? 0
         s.maxBars = Int(st.value("maxsignal")) ?? 5
@@ -202,21 +241,20 @@ extension HiLink {
         case "903": s.connectionText = "Disconnecting"
         default: s.connectionText = "Not connected"
         }
-        let ex = Int(st.value("CurrentNetworkTypeEx")) ?? 0
-        switch ex {
+        switch Int(st.value("CurrentNetworkTypeEx")) ?? 0 {
         case 0: s.networkType = "No service"
         case 101...: s.networkType = "4G"
         case 41...100: s.networkType = "3G"
         default: s.networkType = "2G"
         }
-        if let plmn = try? await get("net/current-plmn") {
+        if let plmn = await plmnCall {
             s.operatorName = plmn.value("FullName").isEmpty ? plmn.value("ShortName") : plmn.value("FullName")
         }
-        if let sig = try? await get("device/signal") {
+        if let sig = await signalCall {
             s.rsrp = sig.value("rsrp")
             s.sinr = sig.value("sinr")
         }
-        if let n = try? await get("monitoring/check-notifications") {
+        if let n = await notifyCall {
             s.unread = Int(n.value("UnreadMessage")) ?? 0
             s.storageFull = n.value("SmsStorageFull") == "1"
         }
@@ -252,6 +290,7 @@ extension HiLink {
         return result
     }
 
+    /// Sends a text and waits for the stick to report it sent or failed.
     func sendSMS(to phone: String, text: String) async throws {
         let now = Self.dateFormatter.string(from: Date())
         _ = try await post("sms/send-sms", """
@@ -259,6 +298,13 @@ extension HiLink {
             <Content>\(xmlEscape(text))</Content><Length>\(text.count)</Length><Reserved>1</Reserved>\
             <Date>\(now)</Date>
             """)
+        for _ in 0..<60 {
+            try await Task.sleep(nanoseconds: 500_000_000)
+            guard let st = try? await get("sms/send-status") else { continue }
+            if !st.value("FailPhone").isEmpty { throw HiLinkError(code: HiLinkError.sendFailed) }
+            if !st.value("SucPhone").isEmpty { return }
+        }
+        throw HiLinkError(code: HiLinkError.sendTimeout)
     }
 
     func markRead(_ ids: [Int]) async throws {
@@ -273,21 +319,28 @@ extension HiLink {
         }
     }
 
+    /// Sends a USSD code (or a reply inside a USSD menu) and waits for the answer.
     func sendUSSD(_ code: String) async throws -> USSDResult {
-        _ = try await post("ussd/send",
-                           "<content>\(xmlEscape(code))</content><codeType>CodeType</codeType><timeout></timeout>")
-        // The stick reports result 1 while it waits for the network.
-        for _ in 0..<60 {
+        let body = "<content>\(xmlEscape(code))</content><codeType>CodeType</codeType><timeout></timeout>"
+        do {
+            _ = try await post("ussd/send", body)
+        } catch {
+            // Usually a session left hanging (by us or the stick's web page):
+            // close it and try once more.
+            await releaseUSSD()
             try await Task.sleep(nanoseconds: 500_000_000)
-            let s = try await get("ussd/status")
+            _ = try await post("ussd/send", body)
+        }
+        // The stick reports result 1 while it waits for the network.
+        for _ in 0..<70 {
+            try await Task.sleep(nanoseconds: 400_000_000)
+            guard let s = try? await get("ussd/status") else { continue }
             if s.value("result") != "1" { break }
         }
-        do {
-            let reply = try await get("ussd/get").value("content")
-            return reply.isEmpty ? .noReply : .reply(reply)
-        } catch {
+        guard let reply = try? await get("ussd/get").value("content"), !reply.isEmpty else {
             return .noReply
         }
+        return .reply(reply)
     }
 
     func releaseUSSD() async {

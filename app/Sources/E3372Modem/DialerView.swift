@@ -176,7 +176,7 @@ struct DialerView: View {
 
     private func sendReply() {
         guard !reply.isEmpty, !model.ussdBusy else { return }
-        model.dial(reply)
+        model.dial(reply, reply: true)
         reply = ""
     }
 }

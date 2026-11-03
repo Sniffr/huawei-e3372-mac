@@ -43,7 +43,12 @@ struct MenuContent: View {
             Text("\(model.status.operatorName) · \(model.status.networkType)")
             Text(model.status.unread == 1 ? "1 unread message" : "\(model.status.unread) unread messages")
         } else {
-            Text("E3372 not found")
+            switch model.problem {
+            case .starting: Text("E3372 starting up…")
+            case .driverMissing: Text("E3372 driver not installed")
+            case .notAnswering: Text("E3372 not answering")
+            default: Text("E3372 not plugged in")
+            }
         }
         Divider()
         Button("Open E3372 Modem") { show(.dialer) }
@@ -85,11 +90,18 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
             .safeAreaInset(edge: .bottom) { StatusFooter(status: model.status).padding(12) }
         } detail: {
-            switch model.section ?? .dialer {
-            case .dialer: DialerView()
-            case .messages: MessagesView()
-            case .device: DeviceView()
+            VStack(spacing: 0) {
+                if let problem = model.problem {
+                    ProblemBanner(problem: problem)
+                    Divider()
+                }
+                switch model.section ?? .dialer {
+                case .dialer: DialerView()
+                case .messages: MessagesView()
+                case .device: DeviceView()
+                }
             }
+            .animation(.default, value: model.problem)
         }
         .alert("Something went wrong", isPresented: Binding(
             get: { model.lastError != nil }, set: { if !$0 { model.lastError = nil } })) {

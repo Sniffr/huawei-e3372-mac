@@ -56,6 +56,8 @@ struct DeviceView: View {
                         Button("Apply") { model.setHost(hostField) }
                     }
                 }
+                Toggle("Open at login (for new-message notifications)", isOn: Binding(
+                    get: { model.opensAtLogin }, set: { model.opensAtLogin = $0 }))
                 Button("Open the Stick's Web Settings") { NSWorkspace.shared.open(model.webURL) }
                 Text("SIM PIN, APN and data settings live on the stick's own web page.")
                     .font(.caption).foregroundStyle(.secondary)
